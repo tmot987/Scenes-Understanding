@@ -11,6 +11,7 @@
 
 #const numSteps = 9.
 
+#const maxTower = 6.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
  sorts
@@ -18,12 +19,12 @@
 
 % sorts for different objects
 #books = [book][1..3].
-#blocks = [block][1..2].
+#blocks = [block][1..3].
 #small_blocks = {small_block0}.
 #duck = {duck1}.
-#unknown = [unknown][0..2]. % this sort is for the partially occluded and not identified objects
+#unknown = {unknown0}. % this sort is for the partially occluded and not identified objects
 
-#object = #books + #small_blocks + #duck + #unknown + #blocks.
+#object = #books + #small_blocks + #unknown + #blocks + #duck.
 
 #location = #object+{ground}.
 
@@ -39,19 +40,22 @@
 #distances = {touch, not_touch, far}.
 #composed_rel = {on}.
 
-#spatial_rel = #composed_rel +  #positions + #distances .
+#spatial_rel = #composed_rel + #positions + #distances.
 
 #boolean = {true, false}.
 
 #step = 0..numSteps.
 
+#height = 1..maxTower.
+
 %%%%%%%%%%
 %% Fluents
 %%%%%%%%%%
 
-#inertial_fluent = stable(#object) + partial_occluded(#object,#object) + in_hand(#robot, #object) + relation(#spatial_rel, #location, #location) + absent(#location) + small_base(#object).
+#inertial_fluent = partially_stable(#object,#object) + partially_occluded(#object,#object) + relation(#spatial_rel, #location, #location) + absent(#location) + small_base(#object) + tower_height(#object,#height) + in_hand(#robot, #object) + irreg_below(#object).
 
-#defined_fluent = occluded(#object). % object occluded if any partial occlusion due to one or more objects exists
+% object occluded if any partial occlusion due to one or more objects exists. Also, objects aren't stable if any other object causes a partial instability
+#defined_fluent = stable(#object) + occluded(#object). 
 
 #fluent = #inertial_fluent + #defined_fluent.
 
@@ -74,7 +78,8 @@ has_size(#object, #obj_size).
 
 complement(#spatial_rel, #spatial_rel).
 
-identity(#unknown, #location). % this is the "secret" identity of the so far not identified objects.
+% this is the "secret" identity of the so far not identified objects.
+identity(#unknown, #location). 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% other predicates
@@ -90,9 +95,7 @@ success().
 goal(#step). 
 something_happened(#step).
 
-%val(#fluent, #boolean, #step).
 is_defined(#fluent).
-
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -124,19 +127,35 @@ holds(relation(S1, O1, O2), I) :- holds(relation(S2, O2, O1), I), complement(S2,
 % 2 objects can't hold more than 1 positional spatial relation at the same time:
 -holds(relation(SR1, O1, O2), I) :- holds(relation(SR2, O1, O2), I), SR1!=SR2, #positions(SR1), #positions(SR2).
 
+% positional relations extension:
+holds(relation(SR, O1, O3), I) :- holds(relation(SR, O1, O2), I), holds(relation(SR, O2, O3), I), #positions(SR).
+
 % the spatial relations still hold if the unknown object is identified
 holds(relation(S, O, L), I) :- holds(relation(S, U, L), I), identity(U, O), -holds(absent(O), I).
+holds(relation(S, O1, O), I) :- holds(relation(S, O1, U), I), identity(U, O), -holds(absent(O), I).
 
 
 % An object is considered to have a small base if it is placed above a small object
 holds(small_base(O1), I) :- holds(relation(above, O1, O2), I), has_size(O2, small).
 
+% An object has an irregular below it
+holds(irreg_below(O),I) :- holds(relation(above, O, O1), I), has_surface(O1, irregular).
+
 
 %% OCCLUSION %%
 
 % An object is considered to be occluded if it is partially occluded by any other object
-holds(occluded(O1), I) :- holds(partial_occluded(O1, O2), I).
+holds(occluded(O1), I) :- holds(partially_occluded(O1, O2), I).
 
+% CWA for the occluded fluent
+-holds(occluded(O1), I) :- not holds(occluded(O1), I).
+
+%% STABILITY %%
+
+-holds(stable(O1), I) :- -holds(partially_stable(O1,O2), I).
+
+%% The agent isn't allowed to place objects in not stable configurations
+:- -holds(stable(O1), I). % this axiom must be removed in case of scene classification
 
 
 %% ABSENCE %%%
@@ -153,9 +172,6 @@ holds(occluded(O1), I) :- holds(partial_occluded(O1, O2), I).
 
 %% Putting down an object causes it to be ON another object
 holds(relation(on, O1, O2), I+1) :- occurs(putdown(R, O1, O2), I), O1!=O2.
-
-%% All objects have to be placed in stable configurations
-holds(stable(O1), I). % this axiom must be removed in case of scene classification
 
 %% Every objects (except the ground) only supports one object at a time
 -occurs(putdown(R, O1, O), I) :- holds(relation(on, O2, O), I), O1!=O2, #object(O).
@@ -180,11 +196,13 @@ scene_stable(I) :- not -scene_stable(I).
 %% Picking up an object causes object to be in hand.
 holds(in_hand(R, O), I+1) :- occurs(pickup(R, O), I).
 
-% Picking up an object results in the removal of the current spatial relations.
--holds(relation(SR, O1, O2), I+1) :- occurs(pickup(R, O1), I), #object(O1), holds(relation(SR, O1, O2), I).
+% Picking up an object results in the removal of the current spatial relations in both directions.
+-holds(relation(SR, O1, O2), I+1) :- occurs(pickup(R, O1), I), holds(relation(SR, O1, O2), I).
+-holds(relation(SR, O1, O2), I+1) :- occurs(pickup(R, O2), I), holds(relation(SR, O1, O2), I).
 
 % For picking up an previously not identified object, the relations of its UNKNOWN counterpart have to be removed.
 -holds(relation(SR, U1, O2), I+1) :- occurs(pickup(R, O1), I), #object(O1), holds(relation(SR, U1, O2), I), identity(U1, O1).
+-holds(relation(SR, O2, U1), I+1) :- occurs(pickup(R, O1), I), #object(O1), holds(relation(SR, O2, U1), I), identity(U1, O1).
 
 %% Cannot pick up an object if it already has it (or another one) in hand.
 -occurs(pickup(R, O1), I) :- holds(in_hand(R, O2), I).
@@ -199,26 +217,39 @@ holds(in_hand(R, O), I+1) :- occurs(pickup(R, O), I).
 -occurs(pickup(R, A), I) :- holds(relation(behind, A, B), I).
 
 
+%% TOWER HEIGHT %%%
+holds(tower_height(O,1),I) :- holds(relation(on,O,ground),I).
+%holds(relation(on,O,ground),I) :- not holds(relation(on,O,O1),I), #object(O1).
+holds(tower_height(O,N+1),I) :- holds(relation(on,O,O1),I), holds(tower_height(O1,N),I).
+-holds(tower_height(O,N1),I) :- holds(tower_height(O,N2),I), N1!=N2.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Learned Rules
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%%%%%%%%%%%%%%%% NORMAL AXIOMS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 %% An object not presenting the spatial relation ABOVE with any other object is STABLE.
-holds(stable(A), I) :- -holds(relation(above, A, B), I), #object(B). 
+holds(partially_stable(A, B), I) :- -holds(relation(above, A, B), I), #object(B). 
 
 %% An object placed ABOVE another object with irregular top surface is UNSTABLE.
--holds(stable(A), I) :- holds(relation(above, A, B), I), has_surface(B, irregular).
+-holds(stable(A), I) :- holds(irreg_below(A),I). 
 
 %% An object is not partially occluded by another if it is not BEHIND it.
--holds(partial_occluded(A, B), I) :- -holds(relation(behind, A ,B), I).
+-holds(partially_occluded(A, B), I) :- -holds(relation(behind, A ,B), I).
+
+%%%%%%%%%%%%%%%  DEFAULT AXIOMS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % An object is usually unstable when it is above a small base. 
--holds(stable(A), I) :- holds(small_base(A), I).%, not holds(stable(A), I).
-%holds(stable(A), 0) :+ holds(small_base(A), 0).
+-holds(stable(A), I) :- holds(small_base(A), I), not holds(stable(A), I).
+holds(stable(A), I) :+ holds(small_base(A), I).
+
+% An object is typically not stable if the number of stacked objects is greater than 4.
+-holds(stable(A), I) :- holds(tower_height(A,N),I), N>4, not holds(stable(A), I). 
+holds(stable(A), I) :+ holds(tower_height(A,N),I), N>4.
 
 % An object "A" placed above other object "C" tends to avoid a possible occlusion caused by a third object "B", from which it is placed behind.
--holds(partial_occluded(A, B), I) :- holds(relation(behind, A ,B), I), holds(relation(above, A, C), I), #object(C).%, not holds(partial_occluded(A, B), I).%
-%holds(partial_occluded(A, B), I) :+.
+-holds(partially_occluded(A, B), I) :- holds(relation(behind, A ,B), I), holds(relation(above, A, C), I), #object(C), not holds(partially_occluded(A, B), I).%
+holds(partially_occluded(A, B), I) :+ holds(relation(behind, A ,B), I), holds(relation(above, A, C), I), #object(C).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
 
@@ -244,8 +275,8 @@ holds(F,I+1) :- #inertial_fluent(F),
                  not holds(F,I+1).
   
 %% CWA for Defined Fluents...
--holds(F,I) :- #defined_fluent(F),         
-                 not holds(F,I).
+%-holds(F,I) :- #defined_fluent(F),         
+%                 not holds(F,I).
                
 %% CWA for Actions...
 -occurs(A,I) :- not occurs(A,I).
@@ -294,35 +325,40 @@ something_happened(I) :- occurs(A, I).
 
 %% INITIAL RELATIONS INVOLVING OBJECTS. This information and the objects recognition would be captured from the camera. Not identified objects are initially labeled as UNKNOWN[i]. 
 holds(relation(above, unknown0, ground),0).
-holds(relation(above, book1, unknown0),0).
+holds(relation(touch, unknown0, ground),0).
+holds(relation(above, book3, small_block0),0).
+holds(relation(touch, book3, small_block0),0).
 holds(relation(above, small_block0, book1),0).
-holds(relation(behind, unknown0, duck1),0).
-holds(relation(behind, unknown0, book3),0).
+holds(relation(touch, small_block0, book1),0).
 
-holds(relation(left, block1, duck1),0).
-holds(relation(right, block2, duck1),0).
+holds(relation(behind, unknown0, duck1),0).
+holds(relation(behind, unknown0, book1),0).
+
+holds(relation(on, book1, ground),0).
+holds(relation(on, duck1, ground),0).
+
+holds(relation(left, block1, book1),0).
+holds(relation(on, block1, ground),0).
+holds(relation(on, block3, block1),0).
+holds(relation(right, block2, book1),0).
+holds(relation(on, block2, ground),0).
 
 %% All the objects in the database and not initially identified are considered absent.
-holds(absent(unknown1),0).
-holds(absent(unknown2),0).
 holds(absent(book2),0).
 
 %% The partial occlusion can also be captured from scene.
-holds(partial_occluded(unknown0, duck1),0).
-holds(partial_occluded(unknown0, book3),0).
+holds(partially_occluded(unknown0, book1),0).
+holds(partially_occluded(unknown0, duck1),0).
 
 %% In a real robot the identity function is not needed; as soon as an object is identified, the UNKNOWN[i] label is replaced by the correct name. 
 identity(unknown0, book2).
 
 %% The objects are initially considered to be stable. 
-holds(stable(O),0).% :- -holds(absent(O),0).
-
+is_defined(partially_stable(O,O1)).
 
 goal(I) :- holds(in_hand(rob1,book2), I).
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
 display
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
 occurs.
-%scene_stable.
-%holds(occluded(O),I).
+
