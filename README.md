@@ -2,6 +2,10 @@ This repository contains code and supporting information relating to an architec
 
 The file 'ASP_agent.sp' gives a CR-Prolog implementation of the robotic domain representation used in the experiments.
 
+The file 'ASP_agent_with(out).sp' gives a CR-Prolog implementation of the robotic domain representation with 5 axioms missing for being learned using the 'axiom_learn.py' algorithm.
+
+The algorithm 'axiom_learn.py' provides the code for tree induction and extraction of missing causal laws and executability conditions.
+
 The file 'Lenet.py' gives the Lenet implemetation used in the experiments.
 
 The file 'Alexnet.py' gives the Alexnet implemetation used in the experiments.
