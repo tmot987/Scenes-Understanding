@@ -10,4 +10,6 @@ The file 'Lenet.py' gives the Lenet implemetation used in the experiments.
 
 The file 'Alexnet.py' gives the Alexnet implemetation used in the experiments.
 
+To run the Deep networks above, download the desired network code and the uncompressed dataset (available on https://drive.google.com/file/d/1aPp4FSo-irTvB3x50nP9Kwjh1WZ4bL87/view?usp=sharing) in the same folder, and execute the following line in the terminal: "python3 name_of_architecture.py number_of_training_scenes", replacing 'name_of_architecture' by Lenet or Alexnet, and the 'number_of_training_scenes' by the number of scenes you want to train your architecture (e.g., 'python3 Lenet.py 100'). The requirements for running these codes are Tensorflow (we tested for version 1.4) and OpenCV.
+
 The 'Explanations' folder provides supporting files related to the ability of providing explanatory descriptions for the agent's actions and beliefs.
